@@ -1,26 +1,31 @@
-"""Builds a self-contained, multi-tab, EDITABLE dashboard.
-Python supplies the ML forecasting outputs; the browser recalculates safety stock, Monte Carlo,
-inventory simulation, Bayesian optimisation and scenarios whenever inputs are edited.
-Usage:  python build_dashboard.py <path-to-chart.umd.js>"""
-import sys, json, re, datetime, html
+"""Builds the self-contained interactive dashboard (one HTML string) from inventory_engine results.
+
+The page embeds Chart.js and all data, so it works inside Streamlit and as a standalone,
+offline HTML file. Safety stock, Monte Carlo, inventory simulation, Bayesian optimisation and
+scenarios are recalculated in the browser whenever inputs are edited in the side panel.
+"""
+import datetime
+import html
+import json
+import re
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
 
-import ai_reorder_point_csv as m          # runs the forecasting analysis on import
+from inventory_engine import GLOBAL_DEFAULTS, HORIZON
 
-CHART_JS = open(sys.argv[1], encoding="utf-8").read()
-names = list(m.products)
-R0 = m.results
-R1 = {n: m.forecast_demand(m.data[m.data["product"] == n].sort_values("date").reset_index(drop=True)) for n in names}
+CHART_JS_PATH = Path(__file__).parent / "assets" / "chart.umd.js"
 esc = html.escape
 
-def f(x, d=0): return f"{x:,.{d}f}"
-def pct(x, d=1): return f"{x:.{d}f}%"
+
+def _f(x, d=0): return f"{x:,.{d}f}"
+def _pct(x, d=1): return f"{x:.{d}f}%"
 def _vis(c): return re.sub(r"<[^>]+>", "", str(c)).replace("&minus;", "-").replace("&mdash;", "").strip()
 def _isnum(c): return _vis(c) == "" or bool(re.fullmatch(r"[-+~]?[\d,]+(\.\d+)?\s*(%|pts)?( / [\d,]+)?", _vis(c)))
-def table(headers, rows):
+
+
+def _table(headers, rows):
     cl = []
     for j in range(len(headers)):
         col = [r[j] for r in rows]
@@ -31,68 +36,100 @@ def table(headers, rows):
     tr = "".join("<tr>" + "".join(f'<td class="{cl[j]}">{c}</td>' for j, c in enumerate(r)) + "</tr>" for r in rows)
     return f'<div class="tbl-wrap"><table><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table></div>'
 
-# ---------------- payload for the browser ----------------
-cut = m.cutoff
-prod_payload, fi, profile = {}, {}, {}
-for n in names:
-    r, p = R0[n], m.products[n]
-    hist = m.full[(m.full["product"] == n) & (m.full["date"] <= cut)].sort_values("date").reset_index(drop=True)
-    model = m.fit(m.add_features(hist))
-    fi[n] = dict(zip(m.FEATURES, model.feature_importances_ * 100))
-    new = m.full[(m.full["product"] == n) & (m.full["date"] > cut)].sort_values("date").head(m.HORIZON)
-    allp = m.full[m.full["product"] == n].set_index("date")
-    w = allp["demand"].resample("W").sum().iloc[1:-1]
-    d = allp["demand"]
-    prof = {"Days of data": len(d), "First date": d.index.min().strftime("%d %b %Y"), "Last date": d.index.max().strftime("%d %b %Y"),
-            "Mean demand / day": f(d.mean()), "Std deviation": f(d.std()), "Min / Max": f"{f(d.min())} / {f(d.max())}",
-            "Coefficient of variation": pct(d.std() / d.mean() * 100), "Zero-sales days": int((d == 0).sum()),
-            "Days with promotions": pct((allp["promo"] > 0).mean() * 100, 0)}
-    if "holiday" in allp: prof["Holiday days"] = int(allp["holiday"].sum())
-    if "oil_price" in allp: prof["Avg oil price (USD/bbl)"] = f(allp["oil_price"].mean(), 1)
-    prof["Correlation: demand vs promo"] = f(d.corr(allp["promo"]), 2)
-    if "oil_price" in allp: prof["Correlation: demand vs oil price"] = f(d.corr(allp["oil_price"]), 2)
-    profile[n] = prof
-    cap = p.get("cap", r["D"] * (2.5 * p["L"] + 3))
-    prod_payload[n] = {
-        "defaults": {"L": int(round(p["L"])), "sL": float(p["sigma_L"]), "h": float(p["h"]), "cap": int(round(cap)),
-                     "sd": round(float(r["sigma_D"]), 1), "fc": [int(round(x)) for x in r["forecast"]]},
-        "sigma_raw": float(r["sigma_raw"]), "err_static": float(r["err_static"]), "err_updated": float(r["err_updated"]),
-        "fc_dates": new["date"].dt.strftime("%a %d %b").tolist(), "fc_actual": new["demand"].round(0).tolist(),
-        "after": {"fc": [float(x) for x in R1[n]["forecast"]], "sd": float(R1[n]["sigma_D"]), "err": float(R1[n]["err_updated"])},
-        "bt_labels": pd.to_datetime(r["dates"]).strftime("%d %b").tolist(),
-        "bt_actual": np.round(r["actual"], 0).tolist(), "bt_fc": np.round(r["backtest"], 0).tolist(),
-        "weekly": {"labels": w.index.strftime("%Y-%m-%d").tolist(), "values": w.round(0).tolist()},
-        "dow": allp["demand"].groupby(allp.index.dayofweek).mean().reindex(range(7)).round(0).tolist(),
-    }
-payload = {"names": names, "newDays": m.NEW_DAYS,
-           "G": {"sl": m.SERVICE_LEVEL, "oc": m.ORDER_COST, "so": m.STOCKOUT_COST}, "P": prod_payload}
 
-# ---------------- static tables (from the Python forecasting model) ----------------
-acc_rows = []
-for n in names:
-    r = R0[n]; imp = r["err_static"] - r["err_updated"]
-    acc_rows.append([f"<b>{esc(n)}</b>", pct(r["err_static"]), pct(r["err_updated"]),
-                     f'<span class="good">&minus;{imp:.1f} pts</span>' if imp >= 0 else f"+{-imp:.1f} pts",
-                     f(r["sigma_raw"]), f(r["sigma_D"]), pct((1 - r["sigma_D"] / r["sigma_raw"]) * 100, 0)])
-ACC = table(["Product", "Error: static model", "Error: re-trained weekly", "Improvement", "Raw demand std",
-             "Forecast-error std (&sigma;<sub>D</sub>)", "Uncertainty removed"], acc_rows)
-feat_names = {"level": "Recent demand level (28-day avg)", "dow": "Day of week", "sin": "Seasonality (sin)", "cos": "Seasonality (cos)",
-              "promo": "Promotions", "oil_price": "Oil price (external)", "holiday": "Holiday (external)"}
-fi_rows = [[feat_names.get(ft, ft)] + [pct(fi[n][ft]) for n in names] for ft in m.FEATURES]
-fi_rows.sort(key=lambda r: -np.mean([float(x.rstrip("%")) for x in r[1:]]))
-FI = table(["Demand driver"] + [esc(n) for n in names], fi_rows)
-pkeys = list(profile[names[0]].keys())
-PROF = table(["Metric"] + [esc(n) for n in names], [[k] + [str(profile[n].get(k, "&mdash;")) for n in names] for k in pkeys])
-GLOSS = table(["Term", "Meaning"], [
-    ["Reorder point (ROP)", "Inventory position (on hand + on order) at which a new order is placed."],
-    ["Safety stock (SS)", "Buffer above expected lead-time demand that protects against uncertainty."],
-    ["EOQ", "Economic order quantity, &radic;(2&middot;D&middot;order cost / holding cost): balances ordering and holding cost."],
-    ["Fill rate", "Share of customer demand served from stock."],
-    ["Cycle service level", "Probability of no stockout during a replenishment cycle (what Z targets)."],
-    ["&sigma;<sub>D</sub>", "Std of the forecast error: the demand uncertainty left after forecasting."],
-    ["Expected improvement", "Rule the Bayesian search uses to pick the next reorder point to test."]])
+FEATURE_NAMES = {"level": "Recent demand level (28-day avg)", "dow": "Day of week", "sin": "Seasonality (sin)",
+                 "cos": "Seasonality (cos)", "promo": "Promotions", "oil_price": "Oil price (external)",
+                 "holiday": "Holiday (external)"}
 
-# ================= PAGE =================
+
+def build_dashboard_html(A, data_label, data_desc, chart_js=None):
+    """A = inventory_engine.run_analysis(...) output. Returns the full HTML page as a string."""
+    chart_js = chart_js if chart_js is not None else CHART_JS_PATH.read_text(encoding="utf-8")
+    names, full, factors, cutoff = A["names"], A["full"], A["factors"], A["cutoff"]
+    R = A["results"]
+
+    prod_payload, profile = {}, {}
+    for n in names:
+        r0, r1, sup = R[n]["r0"], R[n]["r1"], R[n]["supply"]
+        allp = full[full["product"] == n].set_index("date").sort_index()
+        d = allp["demand"]
+        fc_dates = pd.date_range(cutoff + pd.Timedelta(days=1), periods=HORIZON)
+        fc_actual = d.reindex(fc_dates)
+        w = d.resample("W").sum().iloc[1:-1]
+        prof = {"Days of data": len(d), "First date": d.index.min().strftime("%d %b %Y"),
+                "Last date": d.index.max().strftime("%d %b %Y"), "Mean demand / day": _f(d.mean()),
+                "Std deviation": _f(d.std()), "Min / Max": f"{_f(d.min())} / {_f(d.max())}",
+                "Coefficient of variation": _pct(d.std() / max(d.mean(), 1e-9) * 100),
+                "Zero-sales days": int((d == 0).sum()), "Days with promotions": _pct((allp["promo"] > 0).mean() * 100, 0)}
+        for c in factors:
+            if c == "promo":
+                continue
+            vals = allp[c]
+            if set(vals.dropna().unique()) <= {0, 1}:
+                prof[f"{esc(c.replace('_', ' ').capitalize())} days"] = int(vals.sum())
+            else:
+                prof[f"Avg {esc(c.replace('_', ' '))}"] = _f(vals.mean(), 1)
+        for c in factors:
+            cor = d.corr(allp[c]) if allp[c].std() > 0 else float("nan")
+            prof[f"Correlation: demand vs {esc(c.replace('_', ' '))}"] = "&mdash;" if np.isnan(cor) else _f(cor, 2)
+        profile[n] = prof
+        cap = sup.get("cap", R[n]["D"] * (2.5 * sup["L"] + 3))
+        prod_payload[n] = {
+            "defaults": {"L": int(round(sup["L"])), "sL": float(sup["sigma_L"]), "h": float(sup["h"]),
+                         "cap": int(round(cap)), "sd": round(float(r0["sigma_D"]), 1),
+                         "fc": [int(round(x)) for x in r0["forecast"]]},
+            "sigma_raw": r0["sigma_raw"], "err_static": float(r0["err_static"]), "err_updated": float(r0["err_updated"]),
+            "fc_dates": fc_dates.strftime("%a %d %b").tolist(),
+            "fc_actual": [None if pd.isna(v) else float(round(v)) for v in fc_actual],
+            "after": {"fc": [float(x) for x in r1["forecast"]], "sd": float(r1["sigma_D"]), "err": float(r1["err_updated"])},
+            "bt_labels": pd.to_datetime(r0["dates"]).strftime("%d %b").tolist(),
+            "bt_actual": np.round(r0["actual"], 0).tolist(), "bt_fc": np.round(r0["backtest"], 0).tolist(),
+            "weekly": {"labels": w.index.strftime("%Y-%m-%d").tolist(), "values": w.round(0).tolist()},
+            "dow": d.groupby(d.index.dayofweek).mean().reindex(range(7)).fillna(0).round(0).tolist(),
+        }
+    payload = {"names": names, "newDays": A["new_days"], "G": dict(GLOBAL_DEFAULTS), "P": prod_payload}
+
+    acc_rows = []
+    for n in names:
+        r = R[n]["r0"]
+        imp = r["err_static"] - r["err_updated"]
+        acc_rows.append([f"<b>{esc(n)}</b>", _pct(r["err_static"]), _pct(r["err_updated"]),
+                         f'<span class="good">&minus;{imp:.1f} pts</span>' if imp >= 0 else f"+{-imp:.1f} pts",
+                         _f(r["sigma_raw"]), _f(r["sigma_D"]), _pct((1 - r["sigma_D"] / max(r["sigma_raw"], 1e-9)) * 100, 0)])
+    acc = _table(["Product", "Error: static model", "Error: re-trained weekly", "Improvement", "Raw demand std",
+                  "Forecast-error std (&sigma;<sub>D</sub>)", "Uncertainty removed"], acc_rows)
+    fi_rows = [[FEATURE_NAMES.get(ft, esc(ft.replace("_", " ").capitalize()))] + [_pct(R[n]["r0"]["importance"][ft]) for n in names]
+               for ft in A["features"]]
+    fi_rows.sort(key=lambda r: -np.mean([float(x.rstrip("%")) for x in r[1:]]))
+    fi = _table(["Demand driver"] + [esc(n) for n in names], fi_rows)
+    pkeys = list(dict.fromkeys(k for n in names for k in profile[n]))
+    prof = _table(["Metric"] + [esc(n) for n in names], [[k] + [str(profile[n].get(k, "&mdash;")) for n in names] for k in pkeys])
+    gloss = _table(["Term", "Meaning"], [
+        ["Reorder point (ROP)", "Inventory position (on hand + on order) at which a new order is placed."],
+        ["Safety stock (SS)", "Buffer above expected lead-time demand that protects against uncertainty."],
+        ["EOQ", "Economic order quantity, &radic;(2&middot;D&middot;order cost / holding cost): balances ordering and holding cost."],
+        ["Fill rate", "Share of customer demand served from stock."],
+        ["Cycle service level", "Probability of no stockout during a replenishment cycle (what Z targets)."],
+        ["&sigma;<sub>D</sub>", "Std of the forecast error: the demand uncertainty left after forecasting."],
+        ["Expected improvement", "Rule the Bayesian search uses to pick the next reorder point to test."]])
+    drivers = ", ".join(FEATURE_NAMES.get(c, c.replace("_", " ")).split(" (")[0].lower() for c in factors)
+
+    body = (BODY.replace("%%RANGE%%", f'{full["date"].min():%d %b %Y} &ndash; {full["date"].max():%d %b %Y}')
+            .replace("%%PRODS%%", ", ".join(esc(n) for n in names))
+            .replace("%%GEN%%", datetime.datetime.now().strftime("%d %b %Y"))
+            .replace("%%DATALABEL%%", esc(data_label)).replace("%%DATADESC%%", data_desc)
+            .replace("%%DRIVERS%%", esc(drivers))
+            .replace("%%ACC%%", acc).replace("%%FI%%", fi).replace("%%PROF%%", prof).replace("%%GLOSS%%", gloss))
+    return ("<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            "<title>AI Inventory Optimization Dashboard</title><style>" + CSS + "</style></head><body>" + body
+            + "<script>" + chart_js + "</script><script>"
+            + JS.replace("__DATA__", json.dumps(payload).replace("</", "<\\/")) + "</script></body></html>")
+
+
+# ---------------------------------------------------------------------------
+# Page templates
+# ---------------------------------------------------------------------------
 CSS = r"""
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f4f6fa;color:#1f2937;font-size:14px;line-height:1.55}
@@ -168,8 +205,9 @@ input.bad{border-color:#dc2626;background:#fef2f2}
 .dp td,.dp th{padding:4px 6px}
 .dp th{background:#f8fafc}
 .dhint{font-size:11.5px;color:#64748b;margin-top:6px}
-.dfoot{border-top:1px solid #e5e9f0;padding:12px 18px;background:#f8fafc}
-.dstat{font-size:12px;color:#64748b;margin-bottom:9px;min-height:16px}
+.dfoot{border-bottom:1px solid #e5e9f0;padding:12px 18px;background:#f8fafc}
+.dstat{font-size:12px;color:#64748b;margin-top:9px;min-height:16px;order:2}
+.dfoot{display:flex;flex-direction:column}.dbtns{order:1}
 .dstat.err{color:#dc2626;font-weight:600}
 .dbtns{display:flex;gap:8px}
 .btn{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;color:#334155}
@@ -185,7 +223,7 @@ BODY = r"""
 <div class="wrap">
 <header><h1>AI-Enhanced Reorder Point &amp; Inventory Optimization</h1>
 <p>Predictive demand forecasting &middot; dynamic safety stock &middot; Bayesian reorder-point optimisation</p>
-<div class="chips"><span>Data: Corporaci&oacute;n Favorita (Ecuador), store 1</span><span>%%RANGE%%</span>
+<div class="chips"><span>Data: %%DATALABEL%%</span><span>%%RANGE%%</span>
 <span>Products: %%PRODS%%</span><span>Service level: <b class="v_sl"></b></span><span>Generated %%GEN%%</span></div></header>
 <div class="banner" id="banner"><span>&#9998; Results reflect <b id="nedits"></b> edited input(s). Python-model values are shown in the side panel for comparison.</span><button id="bannerReset">Reset all</button></div>
 <nav class="tabs">
@@ -235,14 +273,14 @@ BODY = r"""
 </section>
 
 <section id="data" data-pp="1">
- <div class="card"><h2>Dataset</h2><p class="sub">Corporaci&oacute;n Favorita (Ecuador) grocery sales, public Kaggle &ldquo;Store Sales &ndash; Time Series Forecasting&rdquo; dataset; store 1, three product families, daily. External drivers: national/local holidays and daily oil price (WTI).</p>%%PROF%%</div>
+ <div class="card"><h2>Dataset</h2><p class="sub">%%DATADESC%%</p>%%PROF%%</div>
  <div class="grid2">
   <div class="card"><h2>Weekly demand history &mdash; <span class="pname"></span></h2><div class="ch"><canvas id="c_weekly"></canvas></div></div>
   <div class="card"><h2>Average demand by weekday</h2><div class="ch"><canvas id="c_dow"></canvas></div></div>
  </div>
  <div class="card"><h2>Methodology</h2>
  <div class="steps">
-  <div class="step"><div class="sn">1</div><div><b>Demand forecasting (Python).</b> Gradient-boosting regression on recent demand level, weekday, yearly seasonality, promotions, holidays and oil price. Re-trained weekly in a rolling back-test; new data can be appended and the pipeline recomputes.</div></div>
+  <div class="step"><div class="sn">1</div><div><b>Demand forecasting (Python).</b> Gradient-boosting regression on recent demand level, weekday, yearly seasonality and %%DRIVERS%%. Re-trained weekly in a rolling back-test; new data can be appended and the pipeline recomputes.</div></div>
   <div class="step"><div class="sn">2</div><div><b>Dynamic safety stock.</b> The forecast error &sigma;<sub>D</sub> feeds <span class="formula">SS = Z&middot;&radic;(&sigma;<sub>D</sub>&sup2;L + D&sup2;&sigma;<sub>L</sub>&sup2;)</span>. A 50,000-scenario Monte Carlo samples random lead times and demand to read the buffer from the simulated distribution.</div></div>
   <div class="step"><div class="sn">3</div><div><b>Bayesian optimisation.</b> A Gaussian-process surrogate of cost vs reorder point, searched by expected improvement, replaces a manual parameter sweep. Constraints: fill rate &ge; <span class="v_sl"></span> (penalty) and capacity (search bound).</div></div>
   <div class="step"><div class="sn">4</div><div><b>Interactive recalculation.</b> Steps 2&ndash;3 and the scenario analysis re-run in your browser whenever inputs are edited in the side panel, so the dashboard responds without Python.</div></div>
@@ -264,6 +302,8 @@ BODY = r"""
 <button class="dtab" id="dtab">&#9998; Edit inputs &amp; data</button>
 <aside class="drawer" id="drawer">
  <div class="dhead"><div><b>Edit inputs &amp; data points</b><small>Change values, then press Recalculate</small></div><button id="dclose" title="Close">&times;</button></div>
+ <div class="dfoot"><div class="dstat" id="dstat"></div>
+  <div class="dbtns"><button class="btn pri" id="recalc">Recalculate</button><button class="btn" id="resetP">Reset product</button><button class="btn" id="resetA">Reset all</button></div></div>
  <div class="dbody">
   <div class="dsec"><h4>Global settings</h4>
    <label class="fld"><span>Service level target (%)<small id="d_g_sl"></small></span><input type="number" step="0.5" min="50" max="99.9" data-g="sl"></label>
@@ -282,8 +322,6 @@ BODY = r"""
    <p class="dhint">The average of the first L days (marked <span style="color:#2563eb">&bull;</span>) sets the demand rate D used by every calculation. &ldquo;Actual&rdquo; is the held-back real demand, shown for reference.</p>
   </div>
  </div>
- <div class="dfoot"><div class="dstat" id="dstat"></div>
-  <div class="dbtns"><button class="btn pri" id="recalc">Recalculate</button><button class="btn" id="resetP">Reset product</button><button class="btn" id="resetA">Reset all</button></div></div>
 </aside>
 <div class="busy" id="busy"><div>Recalculating&hellip;</div></div>
 """
@@ -463,7 +501,7 @@ function renderProduct(){
   const nd = Math.max(1, Math.min(p.fc.length, Math.ceil(p.L)));
   set('t_fc7', tbl(['Date', 'ML model', 'Value used', 'Actual', 'Error'],
     P.fc_dates.map((d, i) => { const used = p.fc[i], md = DEF.S[n].fc[i], a = P.fc_actual[i];
-      return [d + (i < nd ? ' <span style="color:#2563eb" title="Sets demand rate D">&bull;</span>' : ''), f(md), used !== md ? `<span class="edv">${f(used)}</span>` : f(used), f(a), pct(Math.abs(used - a) / Math.max(a, 1) * 100)]; })) +
+      return [d + (i < nd ? ' <span style="color:#2563eb" title="Sets demand rate D">&bull;</span>' : ''), f(md), used !== md ? `<span class="edv">${f(used)}</span>` : f(used), f(a), a == null ? '\u2014' : pct(Math.abs(used - a) / Math.max(a, 1) * 100)]; })) +
     '<p class="sub" style="margin-top:6px"><span style="color:#2563eb">&bull;</span> days whose average sets the demand rate D (first L days).</p>');
   const rk = [['No safety stock', r.mc.mean], ['Textbook formula', r.ropF], ['Monte Carlo', r.ropMC], ['Bayesian optimum', r.rop]].map(([l, rop]) => { const t = tailStats(r.mc.s, rop); return [l, f(rop), pct(t.p * 100), f(t.short, 1)]; });
   const tb = tailStats(r.mc.s, r.rop);
@@ -586,13 +624,3 @@ function showTab(k){ curTab = k;
 document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.t));
 computeAll(); renderGlobal(); renderProduct(); showTab('cockpit');
 """
-
-page = ("<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-        "<title>AI Inventory Optimization Dashboard</title><style>" + CSS + "</style></head><body>"
-        + BODY.replace("%%RANGE%%", f'{m.full["date"].min():%d %b %Y} &ndash; {m.full["date"].max():%d %b %Y}')
-              .replace("%%PRODS%%", ", ".join(esc(n) for n in names)).replace("%%GEN%%", datetime.datetime.now().strftime("%d %b %Y"))
-              .replace("%%ACC%%", ACC).replace("%%FI%%", FI).replace("%%PROF%%", PROF).replace("%%GLOSS%%", GLOSS)
-        + "<script>" + CHART_JS + "</script><script>" + JS.replace("__DATA__", json.dumps(payload)) + "</script></body></html>")
-with open("inventory_dashboard.html", "w", encoding="utf-8") as fh:
-    fh.write(page)
-print("wrote inventory_dashboard.html", f"{len(page)/1024:.0f} KB")

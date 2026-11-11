@@ -74,8 +74,9 @@ input.bad{border-color:#dc2626;background:#fef2f2}
 .dp td,.dp th{padding:4px 6px}
 .dp th{background:#f8fafc}
 .dhint{font-size:11.5px;color:#64748b;margin-top:6px}
-.dfoot{border-top:1px solid #e5e9f0;padding:12px 18px;background:#f8fafc}
-.dstat{font-size:12px;color:#64748b;margin-bottom:9px;min-height:16px}
+.dfoot{border-bottom:1px solid #e5e9f0;padding:12px 18px;background:#f8fafc}
+.dstat{font-size:12px;color:#64748b;margin-top:9px;min-height:16px;order:2}
+.dfoot{display:flex;flex-direction:column}.dbtns{order:1}
 .dstat.err{color:#dc2626;font-weight:600}
 .dbtns{display:flex;gap:8px}
 .btn{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;color:#334155}
@@ -89,7 +90,7 @@ input.bad{border-color:#dc2626;background:#fef2f2}
 <div class="wrap">
 <header><h1>AI-Enhanced Reorder Point &amp; Inventory Optimization</h1>
 <p>Predictive demand forecasting &middot; dynamic safety stock &middot; Bayesian reorder-point optimisation</p>
-<div class="chips"><span>Data: Corporaci&oacute;n Favorita (Ecuador), store 1</span><span>16 Aug 2015 &ndash; 15 Aug 2017</span>
+<div class="chips"><span>Data: Corporación Favorita (Ecuador), store 1</span><span>16 Aug 2015 &ndash; 15 Aug 2017</span>
 <span>Products: Bread &amp; Bakery, Cleaning, Dairy</span><span>Service level: <b class="v_sl"></b></span><span>Generated 11 Nov 2026</span></div></header>
 <div class="banner" id="banner"><span>&#9998; Results reflect <b id="nedits"></b> edited input(s). Python-model values are shown in the side panel for comparison.</span><button id="bannerReset">Reset all</button></div>
 <nav class="tabs">
@@ -139,14 +140,14 @@ input.bad{border-color:#dc2626;background:#fef2f2}
 </section>
 
 <section id="data" data-pp="1">
- <div class="card"><h2>Dataset</h2><p class="sub">Corporaci&oacute;n Favorita (Ecuador) grocery sales, public Kaggle &ldquo;Store Sales &ndash; Time Series Forecasting&rdquo; dataset; store 1, three product families, daily. External drivers: national/local holidays and daily oil price (WTI).</p><div class="tbl-wrap"><table><thead><tr><th class="l">Metric</th><th class="">Bread &amp; Bakery</th><th class="">Cleaning</th><th class="">Dairy</th></tr></thead><tbody><tr><td class="l">Days of data</td><td class="">731</td><td class="">731</td><td class="">731</td></tr><tr><td class="l">First date</td><td class="">16 Aug 2015</td><td class="">16 Aug 2015</td><td class="">16 Aug 2015</td></tr><tr><td class="l">Last date</td><td class="">15 Aug 2017</td><td class="">15 Aug 2017</td><td class="">15 Aug 2017</td></tr><tr><td class="l">Mean demand / day</td><td class="">375</td><td class="">658</td><td class="">721</td></tr><tr><td class="l">Std deviation</td><td class="">114</td><td class="">224</td><td class="">200</td></tr><tr><td class="l">Min / Max</td><td class="">0 / 746</td><td class="">0 / 1,659</td><td class="">0 / 1,225</td></tr><tr><td class="l">Coefficient of variation</td><td class="">30.4%</td><td class="">34.0%</td><td class="">27.7%</td></tr><tr><td class="l">Zero-sales days</td><td class="">4</td><td class="">4</td><td class="">4</td></tr><tr><td class="l">Days with promotions</td><td class="">74%</td><td class="">93%</td><td class="">88%</td></tr><tr><td class="l">Holiday days</td><td class="">41</td><td class="">41</td><td class="">41</td></tr><tr><td class="l">Avg oil price (USD/bbl)</td><td class="">45.1</td><td class="">45.1</td><td class="">45.1</td></tr><tr><td class="l">Correlation: demand vs promo</td><td class="">0.19</td><td class="">0.15</td><td class="">0.20</td></tr><tr><td class="l">Correlation: demand vs oil price</td><td class="">0.04</td><td class="">-0.01</td><td class="">0.00</td></tr></tbody></table></div></div>
+ <div class="card"><h2>Dataset</h2><p class="sub">Corporaci&oacute;n Favorita (Ecuador) grocery sales, public Kaggle &ldquo;Store Sales &ndash; Time Series Forecasting&rdquo; dataset; store 1, three product families, daily. External drivers: national/local holidays and daily oil price (WTI).</p><div class="tbl-wrap"><table><thead><tr><th class="l">Metric</th><th class="">Bread &amp; Bakery</th><th class="">Cleaning</th><th class="">Dairy</th></tr></thead><tbody><tr><td class="l">Days of data</td><td class="">731</td><td class="">731</td><td class="">731</td></tr><tr><td class="l">First date</td><td class="">16 Aug 2015</td><td class="">16 Aug 2015</td><td class="">16 Aug 2015</td></tr><tr><td class="l">Last date</td><td class="">15 Aug 2017</td><td class="">15 Aug 2017</td><td class="">15 Aug 2017</td></tr><tr><td class="l">Mean demand / day</td><td class="">375</td><td class="">658</td><td class="">721</td></tr><tr><td class="l">Std deviation</td><td class="">114</td><td class="">224</td><td class="">200</td></tr><tr><td class="l">Min / Max</td><td class="">0 / 746</td><td class="">0 / 1,659</td><td class="">0 / 1,225</td></tr><tr><td class="l">Coefficient of variation</td><td class="">30.4%</td><td class="">34.0%</td><td class="">27.7%</td></tr><tr><td class="l">Zero-sales days</td><td class="">4</td><td class="">4</td><td class="">4</td></tr><tr><td class="l">Days with promotions</td><td class="">74%</td><td class="">93%</td><td class="">88%</td></tr><tr><td class="l">Avg oil price</td><td class="">45.1</td><td class="">45.1</td><td class="">45.1</td></tr><tr><td class="l">Holiday days</td><td class="">41</td><td class="">41</td><td class="">41</td></tr><tr><td class="l">Correlation: demand vs promo</td><td class="">0.19</td><td class="">0.15</td><td class="">0.20</td></tr><tr><td class="l">Correlation: demand vs oil price</td><td class="">0.04</td><td class="">-0.01</td><td class="">0.00</td></tr><tr><td class="l">Correlation: demand vs holiday</td><td class="">-0.31</td><td class="">-0.26</td><td class="">-0.24</td></tr></tbody></table></div></div>
  <div class="grid2">
   <div class="card"><h2>Weekly demand history &mdash; <span class="pname"></span></h2><div class="ch"><canvas id="c_weekly"></canvas></div></div>
   <div class="card"><h2>Average demand by weekday</h2><div class="ch"><canvas id="c_dow"></canvas></div></div>
  </div>
  <div class="card"><h2>Methodology</h2>
  <div class="steps">
-  <div class="step"><div class="sn">1</div><div><b>Demand forecasting (Python).</b> Gradient-boosting regression on recent demand level, weekday, yearly seasonality, promotions, holidays and oil price. Re-trained weekly in a rolling back-test; new data can be appended and the pipeline recomputes.</div></div>
+  <div class="step"><div class="sn">1</div><div><b>Demand forecasting (Python).</b> Gradient-boosting regression on recent demand level, weekday, yearly seasonality and promotions, oil price, holiday. Re-trained weekly in a rolling back-test; new data can be appended and the pipeline recomputes.</div></div>
   <div class="step"><div class="sn">2</div><div><b>Dynamic safety stock.</b> The forecast error &sigma;<sub>D</sub> feeds <span class="formula">SS = Z&middot;&radic;(&sigma;<sub>D</sub>&sup2;L + D&sup2;&sigma;<sub>L</sub>&sup2;)</span>. A 50,000-scenario Monte Carlo samples random lead times and demand to read the buffer from the simulated distribution.</div></div>
   <div class="step"><div class="sn">3</div><div><b>Bayesian optimisation.</b> A Gaussian-process surrogate of cost vs reorder point, searched by expected improvement, replaces a manual parameter sweep. Constraints: fill rate &ge; <span class="v_sl"></span> (penalty) and capacity (search bound).</div></div>
   <div class="step"><div class="sn">4</div><div><b>Interactive recalculation.</b> Steps 2&ndash;3 and the scenario analysis re-run in your browser whenever inputs are edited in the side panel, so the dashboard responds without Python.</div></div>
@@ -168,6 +169,8 @@ input.bad{border-color:#dc2626;background:#fef2f2}
 <button class="dtab" id="dtab">&#9998; Edit inputs &amp; data</button>
 <aside class="drawer" id="drawer">
  <div class="dhead"><div><b>Edit inputs &amp; data points</b><small>Change values, then press Recalculate</small></div><button id="dclose" title="Close">&times;</button></div>
+ <div class="dfoot"><div class="dstat" id="dstat"></div>
+  <div class="dbtns"><button class="btn pri" id="recalc">Recalculate</button><button class="btn" id="resetP">Reset product</button><button class="btn" id="resetA">Reset all</button></div></div>
  <div class="dbody">
   <div class="dsec"><h4>Global settings</h4>
    <label class="fld"><span>Service level target (%)<small id="d_g_sl"></small></span><input type="number" step="0.5" min="50" max="99.9" data-g="sl"></label>
@@ -186,8 +189,6 @@ input.bad{border-color:#dc2626;background:#fef2f2}
    <p class="dhint">The average of the first L days (marked <span style="color:#2563eb">&bull;</span>) sets the demand rate D used by every calculation. &ldquo;Actual&rdquo; is the held-back real demand, shown for reference.</p>
   </div>
  </div>
- <div class="dfoot"><div class="dstat" id="dstat"></div>
-  <div class="dbtns"><button class="btn pri" id="recalc">Recalculate</button><button class="btn" id="resetP">Reset product</button><button class="btn" id="resetA">Reset all</button></div></div>
 </aside>
 <div class="busy" id="busy"><div>Recalculating&hellip;</div></div>
 <script>/*!
@@ -379,7 +380,7 @@ function renderProduct(){
   const nd = Math.max(1, Math.min(p.fc.length, Math.ceil(p.L)));
   set('t_fc7', tbl(['Date', 'ML model', 'Value used', 'Actual', 'Error'],
     P.fc_dates.map((d, i) => { const used = p.fc[i], md = DEF.S[n].fc[i], a = P.fc_actual[i];
-      return [d + (i < nd ? ' <span style="color:#2563eb" title="Sets demand rate D">&bull;</span>' : ''), f(md), used !== md ? `<span class="edv">${f(used)}</span>` : f(used), f(a), pct(Math.abs(used - a) / Math.max(a, 1) * 100)]; })) +
+      return [d + (i < nd ? ' <span style="color:#2563eb" title="Sets demand rate D">&bull;</span>' : ''), f(md), used !== md ? `<span class="edv">${f(used)}</span>` : f(used), f(a), a == null ? '\u2014' : pct(Math.abs(used - a) / Math.max(a, 1) * 100)]; })) +
     '<p class="sub" style="margin-top:6px"><span style="color:#2563eb">&bull;</span> days whose average sets the demand rate D (first L days).</p>');
   const rk = [['No safety stock', r.mc.mean], ['Textbook formula', r.ropF], ['Monte Carlo', r.ropMC], ['Bayesian optimum', r.rop]].map(([l, rop]) => { const t = tailStats(r.mc.s, rop); return [l, f(rop), pct(t.p * 100), f(t.short, 1)]; });
   const tb = tailStats(r.mc.s, r.rop);
